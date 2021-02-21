@@ -144,7 +144,7 @@ library(data.table)
 setDT(data.frame("Value" = round(quantile(Unrisked_standard_dt$x,perc))), keep.rownames = "Quantile")[] %>% 
   data_frame() %>%
   mutate(Percent = paste0("P",round(100*(1 - perc)))) %>% 
-  setcolorder(neworder = c("Quantile","Probability", "Value"))%>%
+  setcolorder(neworder = c("Quantile","Percent", "Value"))%>%
   kbl() %>%
   kable_classic(full_width = F)
 
