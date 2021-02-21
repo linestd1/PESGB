@@ -1,0 +1,158 @@
+#With thanks to my colleague Sarang Rao 
+
+library(ggplot2)
+library(scales)
+library(dplyr)
+library(tidyverse)
+library(magrittr)
+library(kableExtra)
+library(knitr)
+library(Hmisc)
+
+# install.packages("remotes")
+# remotes::install_github("finnlindgren/StatCompLab")
+
+
+library(StatCompLab)
+
+
+### function for creating percentile line for ggplot 
+StatPercentileX <- ggproto("StatPercentileX", Stat,
+                           compute_group = function(data, scales, probs) {
+                             percentiles <- quantile(data$x, probs=probs)
+                             data.frame(xintercept=percentiles)
+                           },
+                           required_aes = c("x")
+)
+
+
+### function for applying percentile line to ggplot layer
+stat_percentile_x <- function(mapping = NULL, data = NULL, geom = "vline",
+                              position = "identity", na.rm = FALSE,
+                              show.legend = NA, inherit.aes = TRUE, ...) {
+  layer(
+    stat = StatPercentileX, data = data, mapping = mapping, geom = geom, 
+    position = position, show.legend = show.legend, inherit.aes = inherit.aes,
+    params = list(na.rm = na.rm, ...)
+  )
+}
+
+
+### function for creating percentile label for ggplot 
+StatPercentileXLabels <- ggproto("StatPercentileXLabels", Stat,
+                                 compute_group = function(data, scales, probs) {
+                                   percentiles <- quantile(data$x, probs=probs)
+                                   data.frame(x=percentiles, y=probs,
+                                              label=paste0("p", (100 - probs*100), ": ",
+                                                           round(percentiles, digits=0)))
+                                 },
+                                 required_aes = c("x")
+)
+
+### function for applying percentile label to ggplot layer
+stat_percentile_xlab <- function(mapping = NULL, data = NULL, geom = "text",
+                                 position = "identity", na.rm = FALSE,
+                                 show.legend = NA, inherit.aes = TRUE, ...) {
+  layer(
+    stat = StatPercentileXLabels, data = data, mapping = mapping, geom = geom, 
+    position = position, show.legend = show.legend, inherit.aes = inherit.aes,
+    params = list(na.rm = na.rm, ...)
+  )
+}
+
+### Combine percentile line and label
+stat_percentile_x_wlabels <- function(probs=c(0.10, 0.5, 0.90)) {
+  list(
+    stat_percentile_x(probs=probs, linetype=2),
+    stat_percentile_xlab(probs=probs, hjust=-.5, vjust=1.
+                         , angle=0
+    )
+  )
+}
+
+
+
+
+
+###### Create the plot (for request 1)
+
+n= 1e6
+a = 100
+b = 800
+c = 2
+d = 5
+risk = .10
+
+set.seed(1)
+
+
+## Create a risked reserve number
+tb = tibble(reserve_number = runif(n,a,b)*runif(n,c,d), scenario = "Base")
+
+### Create the Graph for unrisked scenario
+unrisked_dt <- ggplot(tb, aes(reserve_number)) + 
+  theme_light()+
+  stat_ecdf(geom = "step",pad = F,show.legend = T,colour ="orange") +
+  
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1),breaks = scales::pretty_breaks(n = 10))+
+  stat_percentile_x_wlabels(probs=c(0,0.10, 0.5,.90))+
+  #facet_wrap(scenario~.)+
+  labs(title="Cumulative Probability of acres x bbls/acre - Base Case",
+       x ="Recoverable Oil '000 bbls", y = "Probability")
+
+unrisked_dt
+
+
+#####################
+
+
+plot.data <- data.frame(layer_data(ggplot(tb, aes(reserve_number)) + 
+                                     theme_light()+
+                                     stat_ecdf(geom = "step",pad = F)))
+
+Unrisked_standard_dt <- plot.data %>%
+  select(x,y) %>%
+  mutate(scenario = "Base")
+
+
+#### Case 1 - create the adjusted risk scenario for graph
+risked_standardised_dt <- plot.data %>%
+  transmute(x = x ,
+            y = (y*risk)+(1-risk),
+            scenario = paste("Risked @",risk*100,"%")
+  ) 
+
+
+### Create graph for combine scenario
+Unrisked_standard_dt %>%
+  bind_rows(risked_standardised_dt) %>%
+  ggplot(aes(x,y,group = scenario) )+
+  geom_line(aes(color = scenario))+
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), breaks = scales::pretty_breaks(n = 10))+
+  stat_percentile_x_wlabels(probs=c(0,0.10, 0.5,.90))+
+  labs(title="Cumulative Probability of acres x bbls/acre",
+       x ="Recoverable Oil '000 bbls", y = "Probability")+
+  theme_light()
+
+
+
+
+
+perc <- c(0,.1,.5,.9,1)
+library(data.table)
+
+setDT(data.frame("Value" = round(quantile(Unrisked_standard_dt$x,perc))), keep.rownames = "Quantile")[] %>% 
+  data_frame() %>%
+  mutate(Percent = paste0("P",round(100*(1 - perc)))) %>% 
+  setcolorder(neworder = c("Quantile","Probability", "Value"))%>%
+  kbl() %>%
+  kable_classic(full_width = F)
+
+# Unrisked_standard_dt %>%
+#   bind_rows(risked_standardised_dt) %>%
+#   group_by(scenario) %>%
+#   summarise(q25 = y[which.max(y[x<=0.25])],
+#             q50 = y[which.max(y[x<=0.5])],
+#             q75 = y[which.max(y[x<=0.75])])
+
+
